@@ -20,3 +20,8 @@ from degann.search_algorithms.nn_code import (
     hex_to_act,
     alph_n_full,
 )
+
+
+from degann.search_algorithms.genetic_search_iml.genetic_search import (
+    genetic_search
+)
