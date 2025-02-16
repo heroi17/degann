@@ -1,6 +1,6 @@
 from datetime import datetime
 from itertools import product
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 from ..nn_code import alph_n_full, alphabet_activations, decode
 from degann.networks.callbacks import MeasureTrainTime
@@ -8,7 +8,7 @@ from degann.networks import imodel
 from ..utils import update_random_generator, log_to_file
 
 
-from deap import base, creator, tools, algorithms
+from deap import base, creator, tools, algorithms  # type: ignore
 import numpy as np
 import random
 from copy import copy
@@ -21,11 +21,26 @@ from degann.search_algorithms.grid_search import (
 
 
 def genetic_topology_repr_encode(genome: List[Tuple[int, int]]) -> str:
-    """return str repr of genome"""
+    """Encodes a genome (list of layer-activation pairs) into a string representation.
+
+    Args:
+        genome (List[Tuple[int, int]]): The genome to encode. Each tuple represents a layer and its activation function.
+
+    Returns:
+        str: A string representation of the genome.
+    """
     return "".join(f"{layer:x}{activation:x}" for layer, activation in genome)
 
 
 def genetic_topology_repr_decode(str_genome_repr: str) -> List[Tuple[int, int]]:
+    """Decodes a string representation of a genome back into a list of layer-activation pairs.
+
+    Args:
+        str_genome_repr (str): The string representation of the genome.
+
+    Returns:
+        List[Tuple[int, int]]: The decoded genome as a list of tuples, where each tuple represents a layer and its activation function.
+    """
     genome = []
     for i in range(0, len(str_genome_repr), 2):
         layer = int(str_genome_repr[i], 16)
@@ -35,7 +50,7 @@ def genetic_topology_repr_decode(str_genome_repr: str) -> List[Tuple[int, int]]:
 
 
 def evaluate(
-    individual,
+    individual: List[Tuple[int, int]],
     bestNN: List,
     topologyHistory: dict[str, float],
     input_size: int,
@@ -44,12 +59,33 @@ def evaluate(
     val_data: Tuple,
     NNepoch: int,
 ):
+    """Evaluates an individual (genome) by training a neural network with the specified topology.
+
+    This function checks if the topology has already been evaluated. If not, it trains a neural network,
+    records the validation loss, and updates the `bestNN` if the current individual performs better.
+
+    Args:
+        individual (List[Tuple[int, int]]): The individual (genome) to evaluate.
+        bestNN (List): A list containing the best neural network found so far and its validation loss.
+                       `bestNN[0]` is the neural network model, and `bestNN[1]` is the validation loss.
+        topologyHistory (dict[str, float]): A dictionary storing the validation loss for each evaluated topology.
+                                           Keys are string representations of the topology, and values are the corresponding validation losses.
+        input_size (int): The size of the input data.
+        output_size (int): The size of the output data.
+        train_data (Tuple): The training data.
+        val_data (Tuple): The validation data.
+        NNepoch (int): The number of epochs to train the neural network.
+
+    Returns:
+        Tuple[float]: A tuple containing the best loss.
+    """
     topology_str = genetic_topology_repr_encode(individual)
 
+    # Check if topology has already been evaluated
     if topology_str in topologyHistory:
         return (topologyHistory[topology_str],)
     else:
-        # (best_loss, best_val_loss, best_net)
+        # Train the NN and get results
         bl, bvl, bn = grid_search_step(
             input_size=input_size,
             output_size=output_size,
@@ -61,8 +97,10 @@ def evaluate(
             val_data=val_data,
         )
 
+        # Store the validation loss in the topology history
         topologyHistory[topology_str] = bvl
 
+        # Update the best NN if the current one is better
         bestNN_val = bestNN
         if bestNN_val[1] > bvl:
             bestNN_val[:] = [
@@ -73,8 +111,19 @@ def evaluate(
 
 
 def generate_genome(
-    min_layers, max_layers, neuron_num, activ_func
-):  # min_layers chenged to 2
+    min_layers: int, max_layers: int, neuron_num: set[int], activ_func: set[int]
+) -> List[Tuple[int, int]]:
+    """Generates a random genome (neural network topology).
+
+    Args:
+        min_layers (int): The minimum number of layers in the genome.
+        max_layers (int): The maximum number of layers in the genome.
+        neuron_num (set[int]): A set of possible numbers of neurons for each layer.
+        activ_func (set[int]): A set of possible activation function indices for each layer.
+
+    Returns:
+        List[Tuple[int, int]]: A list of tuples representing the genome. Each tuple contains the number of neurons and the activation function index for a layer.
+    """
     num_layers = random.randint(min_layers, max_layers)
     genome = []
     for _ in range(num_layers):
@@ -84,7 +133,23 @@ def generate_genome(
     return genome
 
 
-def mutate_individual(individual, indpb, neuron_num, activ_func):
+def mutate_individual(
+    individual: List[Tuple[int, int]],
+    indpb: float,
+    neuron_num: set[int],
+    activ_func: set[int],
+) -> Tuple[List[Tuple[int, int]]]:
+    """Mutates an individual (genome) by randomly changing the number of neurons or activation function in each layer.
+
+    Args:
+        individual (List[Tuple[int, int]]): The individual (genome) to mutate.
+        indpb (float): The probability of mutating each layer.
+        neuron_num (set[int]): A set of possible numbers of neurons for each layer.
+        activ_func (set[int]): A set of possible activation function indices for each layer.
+
+    Returns:
+        Tuple[List[Tuple[int, int]]]: A tuple containing the mutated individual.
+    """
     for i in range(len(individual)):
         if random.random() < indpb:
             individual[i] = (
@@ -94,14 +159,28 @@ def mutate_individual(individual, indpb, neuron_num, activ_func):
     return (individual,)
 
 
-def mate(ind1, ind2, topologyHistory):
+def mate(
+    ind1: List[Tuple[int, int]],
+    ind2: List[Tuple[int, int]],
+    topologyHistory: dict[str, float],
+) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+    """Mates two individuals (genomes) using one-point crossover.
+
+    Args:
+        ind1 (List[Tuple[int, int]]): The first individual.
+        ind2 (List[Tuple[int, int]]): The second individual.
+        topologyHistory (dict[str, float]): A dictionary storing the validation loss for each evaluated topology.
+
+    Returns:
+        Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]: A tuple containing the two offspring.
+    """
     for _ in range(10):
         ind1_pr = copy(ind1)
         ind2_pr = copy(ind2)
         ind1_pr, ind2_pr = tools.cxOnePoint(ind1_pr, ind2_pr)
         if (
             genetic_topology_repr_encode(ind1_pr) not in topologyHistory
-            and genetic_topology_repr_encode(ind1_pr) not in topologyHistory
+            and genetic_topology_repr_encode(ind2_pr) not in topologyHistory
         ):
             break
 
@@ -114,19 +193,48 @@ def genetic_search(
     # NN train haracteristics
     input_size: int = 1,
     output_size: int = 1,
-    train_data: tuple = None,
-    val_data: tuple = None,  # now it should be not null always and not empty
+    train_data: Union[tuple, None] = None,
+    val_data: Union[
+        tuple, None
+    ] = None,  # now it should be not null always and not empty
     NNepoch: int = 10,  # epohs for train NN
     # topology haracteristics
-    neuron_num={1, 2, 3, 4},  # num of neurons in layer from nn_code
-    activ_func={1, 2, 3},  # activation func ind from nn_code
-    min_layers=2,
-    max_layers=4,
-    pop_size=10,  # size of start population
-    ngen=10,  # how epochs for GA
+    neuron_num: set[int] = {1, 2, 3, 4},  # num of neurons in layer from nn_code
+    activ_func: set[int] = {1, 2, 3},  # activation func ind from nn_code
+    min_layers: int = 2,
+    max_layers: int = 4,
+    pop_size: int = 10,  # size of start population
+    ngen: int = 10,  # how epochs for GA
     # special parametrs like logging or callbacks
-    logToConsole=False,
-):
+    logToConsole: bool = False,
+) -> Tuple[float, float, str, str, dict]:
+    """Performs a genetic search to find the best neural network topology.
+
+    This function uses a genetic algorithm to explore different neural network topologies
+    and find the one that performs best on the given training and validation data.
+
+    Args:
+        input_size (int): The size of the input data.
+        output_size (int): The size of the output data.
+        train_data (Union[tuple, None]): The training data.
+        val_data (Union[tuple, None]): The validation data.
+        NNepoch (int): The number of epochs to train each neural network during evaluation.
+        neuron_num (set[int]): A set of possible numbers of neurons for each layer.
+        activ_func (set[int]): A set of possible activation function indices for each layer.
+        min_layers (int): The minimum number of layers in the neural network.
+        max_layers (int): The maximum number of layers in the neural network.
+        pop_size (int): The size of the population in the genetic algorithm.
+        ngen (int): The number of generations to run the genetic algorithm for.
+        logToConsole (bool): Whether to print the log to the console.
+
+    Returns:
+        Tuple[float, float, str, str, dict]: A tuple containing:
+            - The validation loss of the best neural network.
+            - -1. (Reason unclear from the code, but it's a constant value being returned).
+            - "MeanSquaredError" (The loss function used).
+            - "Adam" (The optimizer used).
+            - The best neural network model (a dictionary).
+    """
     bestNN: List = [
         {},
         float("inf"),
