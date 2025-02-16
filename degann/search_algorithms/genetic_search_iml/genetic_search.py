@@ -1,6 +1,6 @@
 from datetime import datetime
 from itertools import product
-from typing import List, Tuple, Union
+from typing import List, Tuple, Optional, Any
 
 from ..nn_code import alph_n_full, alphabet_activations, decode
 from degann.networks.callbacks import MeasureTrainTime
@@ -51,14 +51,14 @@ def genetic_topology_repr_decode(str_genome_repr: str) -> List[Tuple[int, int]]:
 
 def evaluate(
     individual: List[Tuple[int, int]],
-    bestNN: List,
+    bestNN: List[Any],
     topologyHistory: dict[str, float],
     input_size: int,
     output_size: int,
-    train_data: Tuple,
-    val_data: Tuple,
+    train_data: tuple,
+    val_data: tuple,
     NNepoch: int,
-):
+) -> Tuple[float]:
     """Evaluates an individual (genome) by training a neural network with the specified topology.
 
     This function checks if the topology has already been evaluated. If not, it trains a neural network,
@@ -193,10 +193,8 @@ def genetic_search(
     # NN train haracteristics
     input_size: int = 1,
     output_size: int = 1,
-    train_data: Union[tuple, None] = None,
-    val_data: Union[
-        tuple, None
-    ] = None,  # now it should be not null always and not empty
+    train_data: Optional[tuple] = None,
+    val_data: Optional[tuple] = None,  # now it should be not null always and not empty
     NNepoch: int = 10,  # epohs for train NN
     # topology haracteristics
     neuron_num: set[int] = {1, 2, 3, 4},  # num of neurons in layer from nn_code
